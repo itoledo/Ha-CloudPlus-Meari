@@ -312,7 +312,13 @@ class MsgSvrClient:
         )
 
         self._send(METHOD_DIRECT, CMD_CONNECT, msg)
-        first = self._recv()["json"]
+        # Dormant battery cameras often don't ACK the first connect frame.
+        # Tolerate that so the awaken frame below is still sent (fire-and-forget
+        # wake) instead of aborting the whole wake with a TimeoutError.
+        try:
+            first = self._recv()["json"]
+        except TimeoutError:
+            first = None
 
         msg = json.dumps(
             {
@@ -324,7 +330,10 @@ class MsgSvrClient:
             separators=(",", ":"),
         )
         self._send(METHOD_DIRECT, CMD_CONNECT, msg)
-        return self._recv()["json"] or first
+        try:
+            return self._recv()["json"] or first
+        except TimeoutError:
+            return first
 
     def request_coturn(self, device_uuid):
         """Step 5: Request TURN credentials via webrtcsvr."""
