@@ -26,7 +26,7 @@ _LOGGER = logging.getLogger(__name__)
 
 # Keep successful signaling endpoint for a short period to avoid repeated
 # connect-probe storms during reconnect loops.
-_SIG_CACHE_TTL_S = 180.0
+_SIG_CACHE_TTL_S = 1800.0
 _SIG_CACHE: dict[str, tuple[tuple[str, int], float]] = {}
 
 
