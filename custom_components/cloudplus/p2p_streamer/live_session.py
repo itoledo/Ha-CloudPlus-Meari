@@ -6,6 +6,7 @@ Carved out of ``engine.py`` as a mixin to keep both files under the
 
 from __future__ import annotations
 
+import ipaddress
 import logging
 import os
 import socket
@@ -202,6 +203,13 @@ class LiveSessionMixin:
         confirmed_peer: list[tuple[str, int, bool] | None] = [None]
         direct_ice_peer: list[tuple[str, int] | None] = [None]
         candidate_fanout_until = time.time() + 8.0
+
+        def _is_lan_peer(ip: str) -> bool:
+            """A private/same-LAN media peer (e.g. 192.168.x) reachable directly."""
+            try:
+                return ipaddress.ip_address(ip).is_private
+            except ValueError:
+                return False
 
         def _send_udp(data: bytes) -> None:
             if confirmed_peer[0] is None and direct_ice_peer[0] is not None:
@@ -585,11 +593,21 @@ class LiveSessionMixin:
                 )
                 if valid_peer:
                     direct = not packet.via_turn and not self._remote
+                    peer_is_lan = direct and _is_lan_peer(peer[0])
                     current = confirmed_peer[0]
-                    if current is None or (direct and not current[2]):
+                    current_is_lan = (
+                        current is not None
+                        and current[2]
+                        and _is_lan_peer(current[0])
+                    )
+                    if (
+                        current is None
+                        or (direct and not current[2])          # relay -> direct
+                        or (peer_is_lan and not current_is_lan)  # WAN/relay -> LAN
+                    ):
                         confirmed_peer[0] = (peer[0], peer[1], direct)
-                        if direct:
-                            # Prefer confirmed LAN media and stop fallback fanout.
+                        if peer_is_lan:
+                            # Same-LAN media: lock on and stop probing the far relay.
                             self.direct_confirmed = True
                             candidate_fanout_until = 0.0
                         elif self._remote and packet.via_turn:
@@ -598,10 +616,13 @@ class LiveSessionMixin:
                             # recovery nudges across fallbacks that cannot carry
                             # media from here.
                             candidate_fanout_until = 0.0
+                        # A public "direct" (srflx) peer on a local session does NOT
+                        # stop the fanout window: keep punching the host candidates
+                        # so a slower, power-saved LAN peer can still take over.
                         _LOGGER.debug(
                             "Confirmed media peer %s via %s",
                             format_endpoint(peer),
-                            "direct" if direct else "turn",
+                            "lan" if peer_is_lan else ("direct" if direct else "turn"),
                         )
                 if is_iva or (first_segment and first_segment["cmd"] == KCP_CMD_PUSH):
                     last_kcp_push_time = time.time()
