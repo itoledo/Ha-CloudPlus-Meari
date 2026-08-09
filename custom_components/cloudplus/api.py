@@ -84,6 +84,18 @@ APP_PROFILE_CONFIG: dict[str, AppProfileConfig] = {
         "39",
         encrypted_login=True,
     ),
+    # ANRAN — neutral CloudEdge/Meari rebrand. Cloud API uses sourceApp/partnerId
+    # 84 (verified: login returns 1001 with 84, 1018 with 8/77). Same cloudedge360
+    # backend; region (e.g. US usce) is resolved via root discovery.
+    "anran": AppProfileConfig(
+        "84",
+        "6.1.4",
+        "616",
+        REDIRECT_URL,
+        "84",
+        signaling_app_ver="6.1.4a11",
+        vvp_stream_flag=0,
+    ),
 }
 
 PLATFORM_REGIONS = {"eu", "us", "as", "cn"}
