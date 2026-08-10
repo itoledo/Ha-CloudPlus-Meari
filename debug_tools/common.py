@@ -4,7 +4,8 @@ from __future__ import annotations
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-AUTH_PROFILES = ("cloudedge", "cloudplus", "iegeek", "arenti")
+# Keep in sync with APP_PROFILE_NAMES in custom_components/cloudplus/const.py.
+AUTH_PROFILES = ("cloudedge", "cloudplus", "iegeek", "arenti", "anran")
 AUTH_DEFAULTS = {
     "country_code": "FR",
     "phone_code": "33",

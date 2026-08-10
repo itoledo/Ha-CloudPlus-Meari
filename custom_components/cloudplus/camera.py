@@ -82,4 +82,11 @@ class CloudEdgeMeariCamera(CloudEdgeMeariEntity, Camera):
         if self._coordinator.device_id:
             attrs["device_id"] = self._coordinator.device_id
         attrs["sn_num"] = self._coordinator.device_uuid
+        attrs["ptz_supported"] = self._coordinator.has_ptz
+        if self._coordinator.has_ptz:
+            # Seconds of motor travel away from home; these cameras report no
+            # absolute PTZ position.
+            offset = self._coordinator.ptz_offset
+            attrs["ptz_pan_offset"] = offset["pan"]
+            attrs["ptz_tilt_offset"] = offset["tilt"]
         return attrs

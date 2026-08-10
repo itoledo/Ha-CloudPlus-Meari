@@ -13,13 +13,14 @@ from ..const import (
     IOT_CODE_CHARGE_STATUS,
     IOT_CODE_LAMP,
     IOT_CODE_VIDEO_ENCRYPTION,
+    PTZ_DEFAULT_VARIANT,
     PTZ_DIRECTIONS,
 )
 from ..p2p_streamer import (
     quality_profile_labels,
     supports_adaptive_stream,
 )
-from .iot import iot_value, normalize_iot_values, supports_feature
+from .iot import as_int, iot_value, normalize_iot_values, supports_feature
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -218,15 +219,86 @@ class CoordinatorStateMixin:
             self._fire_update()
         return ok
 
-    def ptz_move(self, direction: str) -> bool:
+    def _use_ptz2(self, variant: str | None) -> bool:
+        """Resolve which IoT code pair to drive for this camera."""
+        variant = (variant or PTZ_DEFAULT_VARIANT).lower()
+        if variant == "ptz":
+            return False
+        if variant == "ptz2":
+            return True
+        return as_int(self._capabilities.get("ptz2")) > 0
+
+    def ptz_move(
+        self,
+        direction: str,
+        *,
+        variant: str | None = None,
+        speed: int | None = None,
+    ) -> bool:
         api = self._api
         if api is None or direction not in PTZ_DIRECTIONS:
             return False
-        return api.ptz_start(self._sn_num, direction)
+        return api.ptz_start(
+            self._sn_num,
+            direction,
+            use_ptz2=self._use_ptz2(variant),
+            speed=speed,
+        )
 
-    def ptz_stop(self) -> bool:
+    def ptz_stop(self, *, variant: str | None = None) -> bool:
         api = self._api
-        return bool(api and api.ptz_stop(self._sn_num))
+        return bool(
+            api and api.ptz_stop(self._sn_num, use_ptz2=self._use_ptz2(variant))
+        )
+
+    def ptz_preset(self, preset_id: int, act: str, name: str | None = None) -> bool:
+        api = self._api
+        return bool(api and api.ptz_preset(self._sn_num, preset_id, act, name))
+
+    def ptz_calibrate(self) -> bool:
+        api = self._api
+        if api is None:
+            return False
+        ok = api.ptz_calibrate(self._sn_num)
+        if ok:
+            # Calibration re-homes the motors, so the tracked travel is void.
+            self.reset_ptz_offset()
+        return ok
+
+    @property
+    def ptz_offset(self) -> dict[str, float]:
+        """Signed seconds of motor travel away from the home position.
+
+        Positive pan is right, positive tilt is up. These cameras report no
+        absolute position, so this is the only way back to where a sweep
+        started.
+        """
+        return {
+            "pan": round(self._ptz_pan_offset, 2),
+            "tilt": round(self._ptz_tilt_offset, 2),
+        }
+
+    def record_ptz_travel(self, direction: str, duration: float) -> None:
+        """Add *duration* seconds of travel in *direction* to the offset."""
+        if duration <= 0:
+            return
+        if direction == "right":
+            self._ptz_pan_offset += duration
+        elif direction == "left":
+            self._ptz_pan_offset -= duration
+        elif direction == "up":
+            self._ptz_tilt_offset += duration
+        elif direction == "down":
+            self._ptz_tilt_offset -= duration
+        else:
+            return
+        self._fire_update()
+
+    def reset_ptz_offset(self) -> None:
+        """Mark wherever the camera is pointing now as the home position."""
+        self._ptz_pan_offset = 0.0
+        self._ptz_tilt_offset = 0.0
+        self._fire_update()
 
     def wake_camera(self) -> None:
         self._wake_event.set()

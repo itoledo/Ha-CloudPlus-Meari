@@ -28,15 +28,11 @@ from .const import (
     DEFAULT_CA_SECRET,
     DES_IV,
     DES_KEY,
-    IOT_CODE_PTZ_START,
-    IOT_CODE_PTZ_STOP,
-    IOT_CODE_PTZ2_START,
-    IOT_CODE_PTZ2_STOP,
     PHONE_TYPE,
-    PTZ_DIRECTIONS,
     REDIRECT_URL,
     TTID,
 )
+from .api_ptz import PtzApiMixin
 from .url_util import parse_host as _host
 
 _LOGGER = logging.getLogger(__name__)
@@ -224,7 +220,7 @@ def _region_code(*hints: str | None) -> str:
 # ---------------------------------------------------------------------------
 
 
-class MeariApiClient:
+class MeariApiClient(PtzApiMixin):
     """HTTP API client for CloudEdge / Meari."""
 
     def __init__(
@@ -875,20 +871,14 @@ class MeariApiClient:
         )
         return resp.get("action") == "set"
 
-    def ptz_start(self, sn_num: str, direction: str, *, use_ptz2: bool = True) -> bool:
-        """Send a PTZ start command for the given direction.
+    def _device_action(self, sn_num: str, code: str, value: str) -> bool:
+        """Send an IoT action straight to the device.
 
-        Uses IoT code 841 (ptz2) when *use_ptz2* is True, else 807 (ptz).
-        The command is sent WITHOUT ``target=server`` so it reaches the
-        device directly (as the official app does for codes 800-899).
+        Action codes (800-899) are sent WITHOUT ``target=server`` so they reach
+        the camera itself, as the official app does. The camera must be awake.
         """
-        ps, ts = PTZ_DIRECTIONS.get(direction, (0, 0))
-        code = IOT_CODE_PTZ2_START if use_ptz2 else IOT_CODE_PTZ_START
-        value_str = json.dumps({"ps": ps, "ts": ts, "zs": 0}, separators=(",", ":"))
-
-        dev_uuid = format_sn(sn_num)
         params_payload = json.dumps(
-            {"code": 100001, "action": "set", "name": "iot", "iot": {code: value_str}},
+            {"code": 100001, "action": "set", "name": "iot", "iot": {code: value}},
             separators=(",", ":"),
         )
         params_b64 = base64.b64encode(params_payload.encode()).decode()
@@ -897,27 +887,7 @@ class MeariApiClient:
             {
                 "action": "set",
                 "params": params_b64,
-                "deviceid": dev_uuid,
-            },
-        )
-        return "errid" not in resp
-
-    def ptz_stop(self, sn_num: str, *, use_ptz2: bool = True) -> bool:
-        """Send a PTZ stop command."""
-        code = IOT_CODE_PTZ2_STOP if use_ptz2 else IOT_CODE_PTZ_STOP
-
-        dev_uuid = format_sn(sn_num)
-        params_payload = json.dumps(
-            {"code": 100001, "action": "set", "name": "iot", "iot": {code: "{}"}},
-            separators=(",", ":"),
-        )
-        params_b64 = base64.b64encode(params_payload.encode()).decode()
-        resp = self._openapi_get(
-            "/openapi/device/config",
-            {
-                "action": "set",
-                "params": params_b64,
-                "deviceid": dev_uuid,
+                "deviceid": format_sn(sn_num),
             },
         )
         return "errid" not in resp

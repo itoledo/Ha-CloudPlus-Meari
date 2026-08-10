@@ -41,7 +41,8 @@ third-party bridge, no Frigate plugin, no extra container needed.
 - **Full settings surface** — most camera IoT toggles (LED, PIR, sirens,
   day/night, recording, anti-flicker, ONVIF, HomeKit, …) appear as native
   HA entities and write back to the camera.
-- **PTZ** — `cloudplus.ptz` service for cameras that support it.
+- **PTZ** — timed moves, automated sweeps that return to where they
+  started, and presets, for cameras that support it.
 - **Multi-camera & multi-account** — one config entry per account, one
   device per camera, all created automatically after login.
 
@@ -157,9 +158,76 @@ Cameras that don't expose a feature simply won't show its entity.
 
 ### Services
 
-| Service          | Description |
-|------------------|-------------|
-| `cloudplus.ptz`  | Move (`left`/`right`/`up`/`down`) or stop a PTZ camera. Target a `camera` entity. See [services.yaml](custom_components/cloudplus/services.yaml). |
+All PTZ services target a `camera` entity (or its device). Full field lists
+live in [services.yaml](custom_components/cloudplus/services.yaml).
+
+| Service | Description |
+|---------|-------------|
+| `cloudplus.ptz` | Move (`left`/`right`/`up`/`down`) or stop. With `duration` the move stops itself after N seconds — preferred, because the stop is guaranteed even if the automation is interrupted. |
+| `cloudplus.ptz_sweep` | Step across the scene and come back. Fires `cloudplus_ptz_sweep_started` / `_step` / `_finished` events. |
+| `cloudplus.ptz_home` | Undo the travel tracked since the home position was set. |
+| `cloudplus.ptz_set_home` | Mark the current position as home (resets the tracked offset). |
+| `cloudplus.ptz_preset` | Set / go to / delete a preset (IoT 848). Firmware-dependent. |
+| `cloudplus.ptz_calibrate` | Run PTZ self-calibration (IoT 847). Firmware-dependent. |
+
+#### How PTZ works on these cameras
+
+The cameras only accept "start moving" and "stop moving" — they report no
+absolute position (IoT 1034 goes unanswered on the battery models), and most
+of them ignore presets and the built-in patrol too. So the integration tracks
+**signed seconds of motor travel per axis** and returns home by moving back
+for the same time. Two consequences:
+
+- Use the same `speed` for the outbound moves and the return, or the camera
+  will not land back where it started.
+- The offset lives in memory. After an HA restart, wherever the camera is
+  pointing becomes the new home; re-aim it and call `cloudplus.ptz_set_home`.
+
+The current offset is published on the camera entity as the
+`ptz_pan_offset` / `ptz_tilt_offset` attributes.
+
+If the camera does not react at all, set `variant` to `ptz` (IoT 807/808) or
+`ptz2` (841/842) explicitly — firmwares differ, and `auto` only guesses from
+the advertised capability.
+
+#### Example: sweep every 30 minutes while recording
+
+```yaml
+automation:
+  - alias: Patrol sweep with recording
+    triggers:
+      - trigger: time_pattern
+        minutes: "/30"
+    actions:
+      # Wake first, so the recording does not open on a dormant camera.
+      - action: button.press
+        target:
+          entity_id: button.driveway_camera_wake_camera
+      - delay: "00:00:20"
+      - parallel:
+          - action: camera.record
+            target:
+              entity_id: camera.driveway_camera
+            data:
+              filename: "/media/patrol/{{ now().strftime('%Y%m%d-%H%M%S') }}.mp4"
+              duration: 60
+              lookback: 0
+          - action: cloudplus.ptz_sweep
+            target:
+              entity_id: camera.driveway_camera
+            data:
+              direction: right
+              steps: 4
+              step_duration: 1.0
+              pause: 8
+              return_home: true
+              wake: true
+```
+
+Keep `steps × (step_duration + pause)` shorter than the recording `duration`
+so the whole sweep lands in the file. The example takes about 36 s of sweep
+plus the return, inside a 60 s recording. Battery cameras need to be awake
+first — leave `wake: true` and allow ~15-20 s for the camera to come up.
 
 ---
 

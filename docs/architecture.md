@@ -36,6 +36,8 @@ root if present.
 | `config_flow.py` | User-facing config + options flows. One account entry, N child camera entries created via `SOURCE_IMPORT`. |
 | `const.py` | All config keys, defaults, app-profile list, alarm-type table, IoT codes. |
 | `api.py` | Meari HTTP client — login, device list, IoT model fetch, wake, OpenAPI bridge. |
+| `api_ptz.py` | `PtzApiMixin` — the PTZ action codes (807/808, 841/842, 847, 848) mixed into the API client. |
+| `ptz.py` | PTZ services: timed moves, travel tracking, sweeps, return-home. |
 | `manifest.json` | Domain, version, `requirements`, `iot_class`. |
 | `services.yaml` + `strings.json` + `translations/` | Service schemas + UI strings. |
 
@@ -66,12 +68,38 @@ actually implement.
 | File | What it does |
 |------|--------------|
 | `__init__.py` | Lifecycle, IoT cache, wake retry loop, video pipeline glue. |
-| `state.py` | Awake / battery / charge state machine, event fan-out. |
+| `state.py` | Awake / battery / charge state machine, event fan-out, PTZ travel tracking. |
 | `motion.py` | Translates raw MQTT alarms into HA binary-sensor pulses. |
 | `iot.py` | IoT model read/write through the Meari HTTP API. |
 | `mpegts.py` + `muxer.py` | ffmpeg-based MPEG-TS muxer (video copy, audio encode). |
 | `audio_encoder.py` | G.711 µ-law → AAC. |
 | `stream_server.py` + `stream_bootstrap.py` | TCP fan-out of MPEG-TS, PAT/PMT seed, idle-stream loop. |
+
+## PTZ
+
+`ptz.py` registers every PTZ service once per integration; `api_ptz.py` sends
+the wire commands.
+
+The cameras expose PTZ as bare motor pulses over the OpenAPI device-action
+path (no `target=server`, so the camera must be awake). What they do **not**
+expose, verified against a battery model that advertises both `ptz` and
+`ptz2`: absolute position (IoT 1034), presets (848) and built-in patrol (822)
+all go unanswered, while ordinary reads on the same request (154, 1007) come
+back fine. Firmware differs on which start/stop pair is live, so `variant`
+selects 807/808 or 841/842 and `auto` follows the advertised capability.
+
+Everything above a pulse is therefore built in HA, not on the camera:
+
+- `_async_timed_move` starts the motor, sleeps, and stops it inside a
+  `finally` with a shielded stop — a cancelled service call must never leave
+  a camera spinning.
+- The coordinator accumulates **signed seconds of travel** per axis
+  (`record_ptz_travel` / `ptz_offset`). That is the only route back to the
+  starting position, so returning home replays the same time in reverse and
+  is speed-sensitive.
+- `_async_sweep` steps, pauses, and homes in a `finally`, so an aborted sweep
+  still comes back. An `asyncio.Lock` per camera keeps two sweeps from
+  interleaving on one motor.
 
 ## P2P streamer
 

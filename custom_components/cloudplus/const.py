@@ -61,6 +61,8 @@ IOT_CODE_PTZ_START = "807"
 IOT_CODE_PTZ_STOP = "808"
 IOT_CODE_PTZ2_START = "841"
 IOT_CODE_PTZ2_STOP = "842"
+IOT_CODE_PTZ_CALIBRATION = "847"
+IOT_CODE_PTZ_PRESET = "848"
 
 # PTZ direction → (pan_speed, tilt_speed) mapping
 PTZ_DIRECTIONS: dict[str, tuple[int, int]] = {
@@ -69,6 +71,36 @@ PTZ_DIRECTIONS: dict[str, tuple[int, int]] = {
     "up": (0, 20),
     "down": (0, -20),
 }
+
+# Direction to travel when undoing a move.
+PTZ_OPPOSITE: dict[str, str] = {
+    "left": "right",
+    "right": "left",
+    "up": "down",
+    "down": "up",
+}
+
+# Which IoT code pair drives the motor. Firmwares differ: some answer the
+# 807/808 pair, some the 841/842 one, and several advertise both. "auto"
+# prefers 841/842 when the device advertises the ptz2 capability.
+PTZ_VARIANTS = ("auto", "ptz", "ptz2")
+PTZ_DEFAULT_VARIANT = "auto"
+
+# These cameras report no PTZ position (IoT 1034 is unanswered), so travel is
+# tracked as signed seconds of motor time and undone by moving back for the
+# same time. Keep single moves short enough that a lost stop cannot spin the
+# camera all the way around.
+PTZ_MAX_MOVE_DURATION = 30.0
+PTZ_SWEEP_MAX_STEPS = 20
+PTZ_SWEEP_DEFAULT_STEPS = 4
+PTZ_SWEEP_DEFAULT_STEP_DURATION = 1.0
+PTZ_SWEEP_DEFAULT_PAUSE = 3.0
+PTZ_SWEEP_DEFAULT_WAKE_TIMEOUT = 25.0
+
+# Events fired around a sweep so automations can start/stop a recording.
+EVENT_PTZ_SWEEP_STARTED = "cloudplus_ptz_sweep_started"
+EVENT_PTZ_SWEEP_STEP = "cloudplus_ptz_sweep_step"
+EVENT_PTZ_SWEEP_FINISHED = "cloudplus_ptz_sweep_finished"
 
 # Motion-related alarm types (from motion_detector.py)
 MOTION_ALARM_TYPES = {1, 2, 11, 20}

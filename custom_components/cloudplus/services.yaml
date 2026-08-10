@@ -1,6 +1,8 @@
 ptz:
   name: PTZ Control
-  description: Control PTZ (Pan-Tilt-Zoom) movement on a CloudEdge / Meari camera.
+  description: >-
+    Move or stop a CloudEdge / Meari PTZ camera. Without a duration the camera
+    keeps moving until you call the service again with action "stop".
   target:
     entity:
       integration: cloudplus
@@ -18,7 +20,7 @@ ptz:
             - label: Stop
               value: stop
     argument:
-      name: Argument
+      name: Direction
       description: Direction for the move action.
       selector:
         select:
@@ -31,3 +33,240 @@ ptz:
               value: up
             - label: Down
               value: down
+    duration:
+      name: Duration
+      description: >-
+        Move for this many seconds and then stop automatically. Recommended:
+        it guarantees the motor stops even if the automation is interrupted,
+        and it lets the integration track the way back home.
+      example: 1.5
+      selector:
+        number:
+          min: 0.1
+          max: 30
+          step: 0.1
+          unit_of_measurement: s
+          mode: box
+    speed:
+      name: Speed
+      description: Motor speed (1-100). Defaults to 80 for pan, 20 for tilt.
+      selector:
+        number:
+          min: 1
+          max: 100
+          step: 1
+          mode: slider
+    variant:
+      name: Command variant
+      description: >-
+        Which IoT code pair to drive. "auto" uses 841/842 when the camera
+        advertises the ptz2 capability, otherwise 807/808. Switch this if the
+        camera does not react.
+      default: auto
+      selector:
+        select:
+          options:
+            - label: Auto
+              value: auto
+            - label: 807 / 808 (ptz)
+              value: ptz
+            - label: 841 / 842 (ptz2)
+              value: ptz2
+
+ptz_sweep:
+  name: PTZ Sweep
+  description: >-
+    Step the camera across the scene and return to the starting position.
+    Fires cloudplus_ptz_sweep_started / _step / _finished events so an
+    automation can record while the sweep runs.
+  target:
+    entity:
+      integration: cloudplus
+      domain: camera
+  fields:
+    direction:
+      name: Direction
+      description: Direction to sweep towards.
+      default: right
+      selector:
+        select:
+          options:
+            - label: Left
+              value: left
+            - label: Right
+              value: right
+            - label: Up
+              value: up
+            - label: Down
+              value: down
+    steps:
+      name: Steps
+      description: How many moves to make.
+      default: 4
+      selector:
+        number:
+          min: 1
+          max: 20
+          step: 1
+          mode: box
+    step_duration:
+      name: Step duration
+      description: Seconds of motor movement per step.
+      default: 1.0
+      selector:
+        number:
+          min: 0.1
+          max: 30
+          step: 0.1
+          unit_of_measurement: s
+          mode: box
+    pause:
+      name: Pause between steps
+      description: Seconds to hold still after each step, so the scene is visible.
+      default: 3.0
+      selector:
+        number:
+          min: 0
+          max: 120
+          step: 0.5
+          unit_of_measurement: s
+          mode: box
+    speed:
+      name: Speed
+      description: Motor speed (1-100).
+      selector:
+        number:
+          min: 1
+          max: 100
+          step: 1
+          mode: slider
+    return_home:
+      name: Return home
+      description: >-
+        Move back to the starting position when the sweep ends. This also runs
+        if the sweep is cancelled.
+      default: true
+      selector:
+        boolean:
+    wake:
+      name: Wake first
+      description: Wake a dormant battery camera before moving.
+      default: true
+      selector:
+        boolean:
+    wake_timeout:
+      name: Wake timeout
+      description: How long to wait for the camera to report itself awake.
+      default: 25
+      selector:
+        number:
+          min: 0
+          max: 120
+          step: 1
+          unit_of_measurement: s
+          mode: box
+    variant:
+      name: Command variant
+      description: Which IoT code pair to drive.
+      default: auto
+      selector:
+        select:
+          options:
+            - label: Auto
+              value: auto
+            - label: 807 / 808 (ptz)
+              value: ptz
+            - label: 841 / 842 (ptz2)
+              value: ptz2
+
+ptz_home:
+  name: PTZ Return Home
+  description: >-
+    Undo the movement tracked since the home position was set, bringing the
+    camera back to where it started.
+  target:
+    entity:
+      integration: cloudplus
+      domain: camera
+  fields:
+    speed:
+      name: Speed
+      description: Motor speed (1-100). Use the same speed the moves used.
+      selector:
+        number:
+          min: 1
+          max: 100
+          step: 1
+          mode: slider
+    variant:
+      name: Command variant
+      description: Which IoT code pair to drive.
+      default: auto
+      selector:
+        select:
+          options:
+            - label: Auto
+              value: auto
+            - label: 807 / 808 (ptz)
+              value: ptz
+            - label: 841 / 842 (ptz2)
+              value: ptz2
+
+ptz_set_home:
+  name: PTZ Set Home
+  description: >-
+    Mark the current position as home and reset the tracked offset to zero.
+    Use it after aiming the camera manually.
+  target:
+    entity:
+      integration: cloudplus
+      domain: camera
+
+ptz_preset:
+  name: PTZ Preset
+  description: >-
+    Store, recall or delete a PTZ preset (IoT code 848). Firmware-dependent:
+    many battery models ignore this code silently.
+  target:
+    entity:
+      integration: cloudplus
+      domain: camera
+  fields:
+    action:
+      name: Action
+      description: What to do with the preset.
+      required: true
+      selector:
+        select:
+          options:
+            - label: Set
+              value: set
+            - label: Go to
+              value: goto
+            - label: Delete
+              value: delete
+    preset:
+      name: Preset
+      description: Preset slot number.
+      required: true
+      selector:
+        number:
+          min: 1
+          max: 32
+          step: 1
+          mode: box
+    name:
+      name: Name
+      description: Optional label stored with the preset.
+      selector:
+        text:
+
+ptz_calibrate:
+  name: PTZ Calibrate
+  description: >-
+    Run the PTZ self-calibration (IoT code 847) and reset the tracked home
+    offset. Firmware-dependent.
+  target:
+    entity:
+      integration: cloudplus
+      domain: camera
