@@ -192,11 +192,14 @@ flight.
 Consequences worth knowing:
 
 - Use the same `speed` for the outbound moves and the return.
-- **Repeatability comes from few long pulses, not many short ones.** Every
-  pulse carries the jitter of a cloud round-trip, so the error is roughly
-  per-pulse: three 1 s steps land far more consistently than twelve 0.25 s
-  steps. If the camera ends up somewhere slightly different each run, use
-  fewer steps before anything else.
+- **Keep `step_duration` at 1 s or more.** Every command spends about 400 ms
+  reaching the camera, with ~150 ms of variation (measured on a battery
+  model). A 0.25 s pulse is shorter than the latency itself, so how far it
+  actually travels is mostly noise; at 1 s that noise drops to a few percent
+  and sweeps repeat reliably. The service logs a warning below 0.5 s.
+- Commands occasionally fail outright — a ten-second timeout, rejected.
+  A rejected move records no travel, and stops are retried, because a lost
+  stop is what leaves a camera grinding against its end stop.
 - **Don't sweep into the mechanical end stop.** Time spent pushing against it
   is recorded as travel that never happened, so the return overshoots. If a
   sweep reaches the limit, use fewer `steps`.

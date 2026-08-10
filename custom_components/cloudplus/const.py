@@ -106,6 +106,14 @@ PTZ_TRAVEL_MAX_SEGMENTS = 400
 # dwell of its own to copy.
 PTZ_RETURN_SETTLE_S = 1.0
 
+# Measured against a battery model: a PTZ command needs ~400 ms to reach the
+# camera, with ~150 ms of spread, and occasionally fails outright (a ten
+# second timeout, rejected). A pulse shorter than the latency itself travels a
+# distance that is mostly noise, and a dropped stop leaves the motor running,
+# so stops are retried.
+PTZ_MIN_RELIABLE_MOVE_S = 0.5
+PTZ_STOP_ATTEMPTS = 3
+
 PTZ_SWEEP_MAX_STEPS = 20
 PTZ_SWEEP_DEFAULT_STEPS = 4
 PTZ_SWEEP_DEFAULT_STEP_DURATION = 1.0

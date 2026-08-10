@@ -35,12 +35,14 @@ from .const import (
     PTZ_DEFAULT_VARIANT,
     PTZ_DIRECTIONS,
     PTZ_MAX_MOVE_DURATION,
+    PTZ_MIN_RELIABLE_MOVE_S,
     PTZ_OPPOSITE,
     PTZ_RETURN_SETTLE_S,
     PTZ_SWEEP_DEFAULT_PAUSE,
     PTZ_SWEEP_DEFAULT_STEP_DURATION,
     PTZ_SWEEP_DEFAULT_STEPS,
     PTZ_SWEEP_DEFAULT_WAKE_TIMEOUT,
+    PTZ_STOP_ATTEMPTS,
     PTZ_SWEEP_MAX_STEPS,
     PTZ_VARIANTS,
 )
@@ -222,6 +224,36 @@ async def _async_ensure_awake(
     return coord.camera_awake
 
 
+async def _async_stop(
+    hass: HomeAssistant,
+    coord: CloudEdgeMeariCoordinator,
+    variant: str | None,
+) -> bool:
+    """Stop the motor, retrying because a lost stop leaves it running.
+
+    Commands to these cameras do fail: measured against a battery model, a
+    stop occasionally takes ten seconds and comes back rejected. Dropping one
+    is how a sweep ends up jammed against the mechanical end stop.
+    """
+    for attempt in range(1, PTZ_STOP_ATTEMPTS + 1):
+        if await hass.async_add_executor_job(
+            partial(coord.ptz_stop, variant=variant)
+        ):
+            return True
+        _LOGGER.warning(
+            "PTZ: stop rejected for %s (attempt %d/%d)",
+            coord.device_name,
+            attempt,
+            PTZ_STOP_ATTEMPTS,
+        )
+    _LOGGER.error(
+        "PTZ: could not stop %s; it may still be moving. Check the camera and "
+        "call cloudplus.ptz_set_home once it is aimed where you want it.",
+        coord.device_name,
+    )
+    return False
+
+
 async def _async_timed_move(
     hass: HomeAssistant,
     coord: CloudEdgeMeariCoordinator,
@@ -233,21 +265,39 @@ async def _async_timed_move(
 ) -> None:
     """Move for *duration* seconds, then stop and record how far it travelled.
 
-    The stop is shielded: a cancelled service call must never leave the motor
-    running.
+    The stop is shielded and retried: a cancelled service call must never
+    leave the motor running. A start the cloud rejects records no travel — the
+    camera did not move, so there is nothing to undo — but is still followed
+    by a stop, since a rejection is not proof the command failed to arrive.
     """
+    if duration < PTZ_MIN_RELIABLE_MOVE_S:
+        _LOGGER.warning(
+            "PTZ: a %.2fs move is shorter than the ~0.4s a command takes to "
+            "reach the camera, so how far it travels is mostly noise. Use "
+            "%.1fs or more for a repeatable sweep.",
+            duration,
+            PTZ_MIN_RELIABLE_MOVE_S,
+        )
+
     started = time.monotonic()
-    await hass.async_add_executor_job(
+    moved = await hass.async_add_executor_job(
         partial(coord.ptz_move, direction, variant=variant, speed=speed)
     )
-    try:
-        await asyncio.sleep(duration)
-    finally:
-        travelled = min(duration, time.monotonic() - started)
-        await asyncio.shield(
-            hass.async_add_executor_job(partial(coord.ptz_stop, variant=variant))
+    if not moved:
+        _LOGGER.warning(
+            "PTZ: %s rejected a %s move; skipping this step",
+            coord.device_name,
+            direction,
         )
-        coord.record_ptz_travel(direction, travelled)
+    try:
+        if moved:
+            await asyncio.sleep(duration)
+    finally:
+        await asyncio.shield(_async_stop(hass, coord, variant))
+        if moved:
+            coord.record_ptz_travel(
+                direction, min(duration, time.monotonic() - started)
+            )
 
 
 async def _async_go_home(

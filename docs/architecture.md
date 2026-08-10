@@ -108,8 +108,14 @@ Everything above a pulse is therefore built in HA, not on the camera:
   the sweep loop ends, the last stop is still in flight. Without that wait the
   return pulses start on a moving motor and each one undoes less than the step
   it is reversing.
-- Accuracy is per-pulse, not per-second: each pulse carries the jitter of a
-  cloud round-trip, so few long steps repeat far better than many short ones.
+- Accuracy is per-pulse, not per-second. Measured on a battery model, a PTZ
+  command takes ~400 ms to reach the camera with ~150 ms of spread, so a
+  0.25 s pulse travels a distance that is mostly noise while a 1 s pulse is
+  within a few percent. `PTZ_MIN_RELIABLE_MOVE_S` gates a warning.
+- Commands fail: one stop in the same measurement took ten seconds and came
+  back rejected. A rejected start records no travel (nothing moved, nothing
+  to undo) but is still followed by a stop, and stops retry up to
+  `PTZ_STOP_ATTEMPTS` — a lost stop is how a camera reaches its end stop.
 - `_async_sweep` steps, pauses, and homes in a `finally`, so an aborted sweep
   still comes back. An `asyncio.Lock` per camera keeps two sweeps from
   interleaving on one motor.
