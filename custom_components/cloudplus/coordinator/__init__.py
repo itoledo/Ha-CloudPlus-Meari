@@ -131,6 +131,7 @@ class CloudEdgeMeariCoordinator(CoordinatorStateMixin):
         self._has_lamp = False
         self._lamp_on = False
         self._has_ptz = self.supports_iot("ptz")
+        self._ptz_travel: list[tuple[str, float]] = []
         self._ptz_pan_offset = 0.0
         self._ptz_tilt_offset = 0.0
 

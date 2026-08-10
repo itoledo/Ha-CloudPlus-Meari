@@ -15,6 +15,9 @@ from ..const import (
     IOT_CODE_VIDEO_ENCRYPTION,
     PTZ_DEFAULT_VARIANT,
     PTZ_DIRECTIONS,
+    PTZ_OPPOSITE,
+    PTZ_TRAVEL_EPSILON_S,
+    PTZ_TRAVEL_MAX_SEGMENTS,
 )
 from ..p2p_streamer import (
     quality_profile_labels,
@@ -270,32 +273,81 @@ class CoordinatorStateMixin:
         """Signed seconds of motor travel away from the home position.
 
         Positive pan is right, positive tilt is up. These cameras report no
-        absolute position, so this is the only way back to where a sweep
-        started.
+        absolute position, so tracked travel is the only way back to where a
+        sweep started.
         """
         return {
             "pan": round(self._ptz_pan_offset, 2),
             "tilt": round(self._ptz_tilt_offset, 2),
         }
 
+    @property
+    def ptz_travel_segments(self) -> list[tuple[str, float]]:
+        """The route away from home, as (direction, seconds) pulses.
+
+        Replaying this reversed and inverted is what brings the camera back;
+        summing it into one move per axis undershoots badly, because each
+        pulse keeps moving until the stop finishes its cloud round-trip.
+        """
+        return list(self._ptz_travel)
+
     def record_ptz_travel(self, direction: str, duration: float) -> None:
-        """Add *duration* seconds of travel in *direction* to the offset."""
-        if duration <= 0:
+        """Append *duration* seconds of travel in *direction* to the route."""
+        if duration <= 0 or direction not in PTZ_OPPOSITE:
             return
-        if direction == "right":
-            self._ptz_pan_offset += duration
-        elif direction == "left":
-            self._ptz_pan_offset -= duration
-        elif direction == "up":
-            self._ptz_tilt_offset += duration
-        elif direction == "down":
-            self._ptz_tilt_offset -= duration
-        else:
-            return
+
+        # Cancel against pending travel the other way first, so jogging back
+        # and forth doesn't grow an ever-longer route home.
+        remaining = duration
+        opposite = PTZ_OPPOSITE[direction]
+        while (
+            remaining > PTZ_TRAVEL_EPSILON_S
+            and self._ptz_travel
+            and self._ptz_travel[-1][0] == opposite
+        ):
+            last_direction, last_duration = self._ptz_travel.pop()
+            if last_duration > remaining + PTZ_TRAVEL_EPSILON_S:
+                self._ptz_travel.append((last_direction, last_duration - remaining))
+                remaining = 0.0
+            else:
+                remaining -= last_duration
+
+        if remaining > PTZ_TRAVEL_EPSILON_S:
+            self._ptz_travel.append((direction, remaining))
+
+        if len(self._ptz_travel) > PTZ_TRAVEL_MAX_SEGMENTS:
+            dropped = len(self._ptz_travel) - PTZ_TRAVEL_MAX_SEGMENTS
+            del self._ptz_travel[:dropped]
+            _LOGGER.warning(
+                "PTZ travel history for %s exceeded %d pulses; dropped the "
+                "oldest %d. Returning home will no longer be exact — aim the "
+                "camera and call cloudplus.ptz_set_home.",
+                self._sn_num,
+                PTZ_TRAVEL_MAX_SEGMENTS,
+                dropped,
+            )
+
+        self._recompute_ptz_offsets()
+
+    def _recompute_ptz_offsets(self) -> None:
+        pan = 0.0
+        tilt = 0.0
+        for direction, duration in self._ptz_travel:
+            if direction == "right":
+                pan += duration
+            elif direction == "left":
+                pan -= duration
+            elif direction == "up":
+                tilt += duration
+            elif direction == "down":
+                tilt -= duration
+        self._ptz_pan_offset = pan
+        self._ptz_tilt_offset = tilt
         self._fire_update()
 
     def reset_ptz_offset(self) -> None:
         """Mark wherever the camera is pointing now as the home position."""
+        self._ptz_travel.clear()
         self._ptz_pan_offset = 0.0
         self._ptz_tilt_offset = 0.0
         self._fire_update()

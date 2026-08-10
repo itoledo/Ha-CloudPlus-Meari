@@ -174,14 +174,25 @@ live in [services.yaml](custom_components/cloudplus/services.yaml).
 
 The cameras only accept "start moving" and "stop moving" — they report no
 absolute position (IoT 1034 goes unanswered on the battery models), and most
-of them ignore presets and the built-in patrol too. So the integration tracks
-**signed seconds of motor travel per axis** and returns home by moving back
-for the same time. Two consequences:
+of them ignore presets and the built-in patrol too. So the integration records
+the outbound **route** as a list of (direction, seconds) pulses and gets home
+by replaying it reversed and inverted.
 
-- Use the same `speed` for the outbound moves and the return, or the camera
-  will not land back where it started.
-- The offset lives in memory. After an HA restart, wherever the camera is
+It replays the route pulse by pulse rather than summing it, and that matters:
+every pulse keeps moving until its stop command finishes a cloud round-trip,
+so eight 0.25 s pulses cover far more ground than one 2 s move. Summing would
+leave the camera well short of home.
+
+Consequences worth knowing:
+
+- Use the same `speed` for the outbound moves and the return.
+- **Don't sweep into the mechanical end stop.** Time spent pushing against it
+  is recorded as travel that never happened, so the return overshoots. If a
+  sweep reaches the limit, use fewer `steps`.
+- The route lives in memory. After an HA restart, wherever the camera is
   pointing becomes the new home; re-aim it and call `cloudplus.ptz_set_home`.
+- Opposite moves cancel out, so jogging back and forth doesn't build up a
+  long way home.
 
 The current offset is published on the camera entity as the
 `ptz_pan_offset` / `ptz_tilt_offset` attributes.

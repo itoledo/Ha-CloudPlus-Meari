@@ -6,8 +6,8 @@ on the battery models, and most of them ignore presets (848) and the built-in
 patrol (822) too. So everything above a raw motor pulse is orchestrated here:
 
 * timed moves — start, wait, stop, always stopping even if the call is cancelled;
-* travel tracking — signed seconds of motor time per axis, the only way back
-  to where a sweep started;
+* travel tracking — the outbound route as a list of (direction, seconds)
+  pulses, the only way back to where a sweep started;
 * sweeps — step across the scene and return home, firing events so an
   automation can record while it happens.
 """
@@ -36,6 +36,7 @@ from .const import (
     PTZ_DIRECTIONS,
     PTZ_MAX_MOVE_DURATION,
     PTZ_OPPOSITE,
+    PTZ_RETURN_SETTLE_S,
     PTZ_SWEEP_DEFAULT_PAUSE,
     PTZ_SWEEP_DEFAULT_STEP_DURATION,
     PTZ_SWEEP_DEFAULT_STEPS,
@@ -250,22 +251,29 @@ async def _async_go_home(
     variant: str | None = None,
     speed: int | None = None,
 ) -> None:
-    """Undo the tracked travel, one axis at a time."""
-    offset = coord.ptz_offset
-    for axis, positive in (("pan", "right"), ("tilt", "up")):
-        value = float(offset.get(axis, 0.0))
-        # Below ~0.1s the motor barely twitches; not worth a command.
-        if abs(value) < 0.1:
-            continue
-        direction = PTZ_OPPOSITE[positive] if value > 0 else positive
+    """Retrace the outbound route, pulse by pulse, in reverse.
+
+    Summing the route into one move per axis does not work: every pulse keeps
+    moving until its stop finishes a cloud round-trip, so eight 0.25 s pulses
+    travel much further than one 2 s move and the camera lands far short of
+    home. Replaying the same pulses pays the same overhead in both directions.
+    """
+    segments = coord.ptz_travel_segments
+    if not segments:
+        return
+
+    for index, (direction, duration) in enumerate(reversed(segments)):
         await _async_timed_move(
             hass,
             coord,
-            direction,
-            min(abs(value), PTZ_MAX_MOVE_DURATION),
+            PTZ_OPPOSITE[direction],
+            min(duration, PTZ_MAX_MOVE_DURATION),
             variant=variant,
             speed=speed,
         )
+        if index < len(segments) - 1:
+            await asyncio.sleep(PTZ_RETURN_SETTLE_S)
+
     coord.reset_ptz_offset()
 
 

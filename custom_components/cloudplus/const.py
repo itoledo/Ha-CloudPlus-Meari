@@ -91,6 +91,15 @@ PTZ_DEFAULT_VARIANT = "auto"
 # same time. Keep single moves short enough that a lost stop cannot spin the
 # camera all the way around.
 PTZ_MAX_MOVE_DURATION = 30.0
+
+# Travel is replayed pulse-by-pulse to get home, never summed into one long
+# move: each pulse pays a cloud round-trip before the stop lands, so N short
+# moves cover far more ground than one N-second move. Anything below this is
+# treated as no travel at all.
+PTZ_TRAVEL_EPSILON_S = 0.05
+PTZ_RETURN_SETTLE_S = 0.3
+PTZ_TRAVEL_MAX_SEGMENTS = 400
+
 PTZ_SWEEP_MAX_STEPS = 20
 PTZ_SWEEP_DEFAULT_STEPS = 4
 PTZ_SWEEP_DEFAULT_STEP_DURATION = 1.0

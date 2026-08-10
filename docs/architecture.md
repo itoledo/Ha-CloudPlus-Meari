@@ -93,10 +93,16 @@ Everything above a pulse is therefore built in HA, not on the camera:
 - `_async_timed_move` starts the motor, sleeps, and stops it inside a
   `finally` with a shielded stop — a cancelled service call must never leave
   a camera spinning.
-- The coordinator accumulates **signed seconds of travel** per axis
-  (`record_ptz_travel` / `ptz_offset`). That is the only route back to the
-  starting position, so returning home replays the same time in reverse and
-  is speed-sensitive.
+- The coordinator records the outbound **route** as (direction, seconds)
+  pulses (`record_ptz_travel` / `ptz_travel_segments`), with opposite moves
+  cancelling so back-and-forth jogging cannot grow it. `ptz_offset` is the
+  per-axis sum, published as a camera attribute.
+- Going home replays that route reversed and inverted, **pulse by pulse**.
+  Summing it into one move per axis undershoots badly: a pulse keeps moving
+  until its stop finishes a cloud round-trip, so N short moves travel much
+  further than one N-second move. Because of that same overhead the return is
+  speed-sensitive, and time spent pushing against a mechanical end stop is
+  recorded as travel that never happened.
 - `_async_sweep` steps, pauses, and homes in a `finally`, so an aborted sweep
   still comes back. An `asyncio.Lock` per camera keeps two sweeps from
   interleaving on one motor.
