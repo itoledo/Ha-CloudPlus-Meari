@@ -5,6 +5,9 @@ on:
     branches:
       - dev
       - main
+  # Lets a release be re-cut without an empty commit, e.g. after enabling
+  # Actions on a fork where the original push predated the first run.
+  workflow_dispatch:
 
 permissions:
   contents: write
