@@ -97,8 +97,14 @@ PTZ_MAX_MOVE_DURATION = 30.0
 # moves cover far more ground than one N-second move. Anything below this is
 # treated as no travel at all.
 PTZ_TRAVEL_EPSILON_S = 0.05
-PTZ_RETURN_SETTLE_S = 0.3
 PTZ_TRAVEL_MAX_SEGMENTS = 400
+
+# A pulse only covers a repeatable distance if the motor was stopped and
+# settled when it started, so the way back has to be paced like the way out —
+# including a wait after the last outbound step, whose stop command is still
+# in flight when the loop ends. This is the floor used when a sweep has no
+# dwell of its own to copy.
+PTZ_RETURN_SETTLE_S = 1.0
 
 PTZ_SWEEP_MAX_STEPS = 20
 PTZ_SWEEP_DEFAULT_STEPS = 4

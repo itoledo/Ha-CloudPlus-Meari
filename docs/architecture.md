@@ -103,6 +103,13 @@ Everything above a pulse is therefore built in HA, not on the camera:
   further than one N-second move. Because of that same overhead the return is
   speed-sensitive, and time spent pushing against a mechanical end stop is
   recorded as travel that never happened.
+- The return is **paced** like the outbound leg (`return_pause`, defaulting to
+  the sweep's `pause`), including a wait before the first return pulse — when
+  the sweep loop ends, the last stop is still in flight. Without that wait the
+  return pulses start on a moving motor and each one undoes less than the step
+  it is reversing.
+- Accuracy is per-pulse, not per-second: each pulse carries the jitter of a
+  cloud round-trip, so few long steps repeat far better than many short ones.
 - `_async_sweep` steps, pauses, and homes in a `finally`, so an aborted sweep
   still comes back. An `asyncio.Lock` per camera keeps two sweeps from
   interleaving on one motor.

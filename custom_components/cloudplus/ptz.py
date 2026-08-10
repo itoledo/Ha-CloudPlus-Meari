@@ -86,6 +86,9 @@ SERVICE_PTZ_SWEEP_SCHEMA = vol.Schema(
         ),
         vol.Optional("speed"): _SPEED,
         vol.Optional("return_home", default=True): vol.Coerce(bool),
+        vol.Optional("return_pause"): vol.All(
+            vol.Coerce(float), vol.Range(min=0, max=120)
+        ),
         vol.Optional("wake", default=True): vol.Coerce(bool),
         vol.Optional(
             "wake_timeout", default=PTZ_SWEEP_DEFAULT_WAKE_TIMEOUT
@@ -98,6 +101,9 @@ SERVICE_PTZ_SWEEP_SCHEMA = vol.Schema(
 SERVICE_PTZ_HOME_SCHEMA = vol.Schema(
     {
         vol.Optional("speed"): _SPEED,
+        vol.Optional("settle", default=PTZ_RETURN_SETTLE_S): vol.All(
+            vol.Coerce(float), vol.Range(min=0, max=120)
+        ),
         vol.Optional("variant", default=PTZ_DEFAULT_VARIANT): _VARIANT,
     },
     extra=vol.ALLOW_EXTRA,
@@ -250,6 +256,7 @@ async def _async_go_home(
     *,
     variant: str | None = None,
     speed: int | None = None,
+    settle: float = PTZ_RETURN_SETTLE_S,
 ) -> None:
     """Retrace the outbound route, pulse by pulse, in reverse.
 
@@ -257,10 +264,19 @@ async def _async_go_home(
     moving until its stop finishes a cloud round-trip, so eight 0.25 s pulses
     travel much further than one 2 s move and the camera lands far short of
     home. Replaying the same pulses pays the same overhead in both directions.
+
+    *settle* is waited before the first pulse and between pulses. It has to be
+    long enough for the motor to actually stop, or each return pulse starts
+    from a camera that is still moving and covers less ground than the
+    outbound pulse it is undoing.
     """
     segments = coord.ptz_travel_segments
     if not segments:
         return
+
+    # The stop of whatever moved last is still in flight.
+    if settle > 0:
+        await asyncio.sleep(settle)
 
     for index, (direction, duration) in enumerate(reversed(segments)):
         await _async_timed_move(
@@ -271,8 +287,8 @@ async def _async_go_home(
             variant=variant,
             speed=speed,
         )
-        if index < len(segments) - 1:
-            await asyncio.sleep(PTZ_RETURN_SETTLE_S)
+        if settle > 0 and index < len(segments) - 1:
+            await asyncio.sleep(settle)
 
     coord.reset_ptz_offset()
 
@@ -332,7 +348,14 @@ async def _async_sweep(
     finally:
         # Runs on cancellation too, so an aborted sweep still comes home.
         if data["return_home"]:
-            await _async_go_home(hass, coord, variant=variant, speed=speed)
+            # Pace the return like the outbound leg: same dwell, so every
+            # pulse starts from a settled motor and undoes the same distance.
+            settle = data.get("return_pause")
+            if settle is None:
+                settle = max(PTZ_RETURN_SETTLE_S, pause)
+            await _async_go_home(
+                hass, coord, variant=variant, speed=speed, settle=settle
+            )
         hass.bus.async_fire(
             EVENT_PTZ_SWEEP_FINISHED, {**base_event, "completed_steps": completed}
         )
@@ -398,6 +421,7 @@ def async_register_ptz_services(hass: HomeAssistant) -> None:
                 await _async_sweep(hass, coord, data)
 
     async def _handle_home(call: ServiceCall) -> None:
+        settle = call.data.get("settle", PTZ_RETURN_SETTLE_S)
         for coord in _ptz_targets(call):
             async with _ptz_lock(hass, coord):
                 await _async_go_home(
@@ -405,6 +429,7 @@ def async_register_ptz_services(hass: HomeAssistant) -> None:
                     coord,
                     variant=call.data.get("variant"),
                     speed=call.data.get("speed"),
+                    settle=settle,
                 )
 
     async def _handle_set_home(call: ServiceCall) -> None:

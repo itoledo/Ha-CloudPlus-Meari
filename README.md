@@ -183,9 +183,20 @@ every pulse keeps moving until its stop command finishes a cloud round-trip,
 so eight 0.25 s pulses cover far more ground than one 2 s move. Summing would
 leave the camera well short of home.
 
+The return is also **paced** like the outbound leg — it waits `return_pause`
+(defaulting to the outbound `pause`) before it starts and between its steps.
+A pulse only covers a repeatable distance if the motor was already stopped
+when it began, and when a sweep's loop ends the last stop command is still in
+flight.
+
 Consequences worth knowing:
 
 - Use the same `speed` for the outbound moves and the return.
+- **Repeatability comes from few long pulses, not many short ones.** Every
+  pulse carries the jitter of a cloud round-trip, so the error is roughly
+  per-pulse: three 1 s steps land far more consistently than twelve 0.25 s
+  steps. If the camera ends up somewhere slightly different each run, use
+  fewer steps before anything else.
 - **Don't sweep into the mechanical end stop.** Time spent pushing against it
   is recorded as travel that never happened, so the return overshoots. If a
   sweep reaches the limit, use fewer `steps`.

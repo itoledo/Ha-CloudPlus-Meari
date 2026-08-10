@@ -148,6 +148,20 @@ ptz_sweep:
       default: true
       selector:
         boolean:
+    return_pause:
+      name: Pause between return steps
+      description: >-
+        Settling time before and between the steps of the return. Defaults to
+        the outbound pause, which is what makes the return land where it
+        started: a pulse only covers a repeatable distance if the motor was
+        already stopped. Lower it only if the camera settles quickly.
+      selector:
+        number:
+          min: 0
+          max: 120
+          step: 0.5
+          unit_of_measurement: s
+          mode: box
     wake:
       name: Wake first
       description: Wake a dormant battery camera before moving.
@@ -198,6 +212,19 @@ ptz_home:
           max: 100
           step: 1
           mode: slider
+    settle:
+      name: Settling time
+      description: >-
+        Wait before and between the return steps, so each one starts from a
+        stopped motor. Too short and the camera lands short of home.
+      default: 1.0
+      selector:
+        number:
+          min: 0
+          max: 120
+          step: 0.5
+          unit_of_measurement: s
+          mode: box
     variant:
       name: Command variant
       description: Which IoT code pair to drive.
